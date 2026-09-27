@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronDown, ChevronLeft, FileUp } from "lucide-react";
@@ -11,6 +11,7 @@ import { deleteCookies, getCookies, getHealth, uploadCookies } from "../lib/api"
 import { clearRecent, getRecent } from "../lib/recent";
 import { formatDate } from "../lib/format";
 import { EASE, fadeUp } from "../lib/motion";
+import { clearLogin, isAndroidApp, onLogin, openLogin } from "../lib/android";
 
 const MAX_FILE_BYTES = 200_000;
 
@@ -62,6 +63,38 @@ function Row({ label, children }) {
 
 function Dot({ ok }) {
   return <span className={`inline-block size-2.5 shrink-0 rounded-full ${ok ? "bg-ink" : "bg-accent"}`} />;
+}
+
+function Collapsible({ title, children }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="border-b border-hairline">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex min-h-14 w-full items-center justify-between font-mono text-[11px] tracking-[0.14em] uppercase"
+      >
+        {title}
+        <ChevronDown size={18} className={`transition-transform duration-300 ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.35, ease: EASE }}
+            className="overflow-hidden"
+          >
+            <div className="pb-6">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 }
 
 function CookieDrop({ onUploaded }) {
@@ -139,55 +172,31 @@ function CookieDrop({ onUploaded }) {
   );
 }
 
-function Guide() {
-  const [open, setOpen] = useState(false);
-
+function CookieGuide() {
   return (
-    <div className="border-b border-hairline">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="flex min-h-14 w-full items-center justify-between font-mono text-[11px] tracking-[0.14em] uppercase"
-      >
-        How to get cookies.txt
-        <ChevronDown size={18} className={`transition-transform duration-300 ${open ? "rotate-180" : ""}`} />
-      </button>
-
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.35, ease: EASE }}
-            className="overflow-hidden"
-          >
-            <div className="grid gap-8 pb-6 md:grid-cols-2">
-              {GUIDES.map((guide) => (
-                <div key={guide.title}>
-                  <p className="font-display text-lg font-semibold tracking-tight">{guide.title}</p>
-                  <ol className="mt-3 space-y-3">
-                    {guide.steps.map((step, i) => (
-                      <li key={step} className="flex gap-3 text-[15px] leading-relaxed">
-                        <span className="pt-0.5 font-mono text-[11px] text-accent">
-                          {String(i + 1).padStart(2, "0")}
-                        </span>
-                        <span>{step}</span>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
+    <>
+      <div className="grid gap-8 md:grid-cols-2">
+        {GUIDES.map((guide) => (
+          <div key={guide.title}>
+            <p className="font-display text-lg font-semibold tracking-tight">{guide.title}</p>
+            <ol className="mt-3 space-y-3">
+              {guide.steps.map((step, i) => (
+                <li key={step} className="flex gap-3 text-[15px] leading-relaxed">
+                  <span className="pt-0.5 font-mono text-[11px] text-accent">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span>{step}</span>
+                </li>
               ))}
-            </div>
-            <p className="pb-6 text-sm leading-relaxed text-muted">
-              Treat this file like a password. Reelkeep keeps only the Instagram cookies and stores
-              them on this device.
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+            </ol>
+          </div>
+        ))}
+      </div>
+      <p className="mt-6 text-sm leading-relaxed text-muted">
+        Treat this file like a password. Reelkeep keeps only the Instagram cookies and stores them
+        on this device.
+      </p>
+    </>
   );
 }
 
@@ -203,14 +212,28 @@ export default function Settings() {
   const [confirming, setConfirming] = useState(false);
   const [recentCount, setRecentCount] = useState(() => getRecent().length);
 
-  useEffect(() => {
-    getHealth()
-      .then(setHealth)
-      .catch(() => setHealth(false));
+  const refreshLogin = useCallback(() => {
     getCookies()
       .then(setLogin)
       .catch(() => setLogin(false));
   }, []);
+
+  useEffect(() => {
+    getHealth()
+      .then(setHealth)
+      .catch(() => setHealth(false));
+    refreshLogin();
+  }, [refreshLogin]);
+
+  // Android tells us when the in-app Instagram login finished
+  useEffect(
+    () =>
+      onLogin(() => {
+        refreshLogin();
+        setNotice("Logged in. The next fetch will use this account.");
+      }),
+    [refreshLogin]
+  );
 
   // "Remove login" needs a second tap within 3 seconds
   useEffect(() => {
@@ -232,6 +255,7 @@ export default function Settings() {
     setConfirming(false);
     try {
       setLogin(await deleteCookies());
+      clearLogin(); // Android: also forget the Instagram login page's session
       setNotice("Login removed.");
     } catch (err) {
       setNotice(err.message);
@@ -240,10 +264,12 @@ export default function Settings() {
 
   const connected = Boolean(login?.logged_in && !login?.expired);
   let loginText = "Checking…";
-  if (login === false) loginText = "Unknown (server offline)";
+  if (login === false) loginText = "Unknown (engine offline)";
   else if (login && connected) loginText = "Connected";
   else if (login?.expired) loginText = "Expired";
   else if (login) loginText = "Not connected";
+
+  const downloadsText = isAndroidApp ? "Downloads/Reelkeep" : health ? health.downloads : "—";
 
   return (
     <Page>
@@ -277,12 +303,30 @@ export default function Settings() {
             {login?.expires && (
               <Row label={login.expired ? "Expired on" : "Expires"}>{formatDate(login.expires)}</Row>
             )}
-            {login?.present && <Row label="Cookies">{login.count}</Row>}
           </div>
 
-          <div className="mt-6">
-            <CookieDrop onUploaded={onUploaded} />
-          </div>
+          {isAndroidApp ? (
+            <div className="mt-6">
+              <motion.button
+                type="button"
+                onClick={openLogin}
+                whileTap={{ scale: 0.98 }}
+                className={`flex min-h-14 w-full items-center justify-center rounded-full text-base font-semibold ${
+                  connected ? "border border-ink text-ink" : "bg-accent text-ink"
+                }`}
+              >
+                {connected ? "Switch Instagram account" : "Log in with Instagram"}
+              </motion.button>
+              <p className="mt-3 text-sm leading-relaxed text-muted">
+                The normal Instagram login page opens inside Reelkeep. Your login stays on this
+                phone; Reelkeep never sees your password.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-6">
+              <CookieDrop onUploaded={onUploaded} />
+            </div>
+          )}
 
           <AnimatePresence initial={false}>
             {notice && (
@@ -307,7 +351,18 @@ export default function Settings() {
           )}
 
           <div className="mt-4">
-            <Guide />
+            {isAndroidApp ? (
+              <Collapsible title="Advanced · Upload cookies.txt instead">
+                <CookieDrop onUploaded={onUploaded} />
+                <div className="mt-8">
+                  <CookieGuide />
+                </div>
+              </Collapsible>
+            ) : (
+              <Collapsible title="How to get cookies.txt">
+                <CookieGuide />
+              </Collapsible>
+            )}
           </div>
         </motion.section>
 
@@ -315,7 +370,7 @@ export default function Settings() {
         <motion.section {...fadeUp(0.1)} className="mt-14 border-t border-ink pt-4">
           <SectionLabel index="02" title="Downloads" />
           <div className="mt-4">
-            <Row label="ZIPs saved to">{health ? health.downloads : "—"}</Row>
+            <Row label="ZIPs saved to">{downloadsText}</Row>
           </div>
           <p className="mt-3 text-sm text-muted">
             Every download is saved here automatically, named after the profile and the time.
@@ -342,14 +397,14 @@ export default function Settings() {
           </div>
         </motion.section>
 
-        {/* 04: Server */}
+        {/* 04: Engine */}
         <motion.section {...fadeUp(0.2)} className="mt-14 border-t border-ink pt-4">
-          <SectionLabel index="04" title="Server" />
+          <SectionLabel index="04" title="Engine" />
           <div className="mt-4">
             <Row label="Status">
               <span className="inline-flex items-center gap-2">
                 <Dot ok={Boolean(health)} />
-                {health === null ? "Checking…" : health ? "Online" : "Offline"}
+                {health === null ? "Checking…" : health ? "Running" : "Offline"}
               </span>
             </Row>
             <Row label="Version">{health ? health.version : "—"}</Row>

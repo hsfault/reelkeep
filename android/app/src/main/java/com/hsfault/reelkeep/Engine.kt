@@ -14,6 +14,10 @@ object Engine {
     private var port = 0
     private val lock = Any()
 
+    /** 0 until the engine has started. */
+    val currentPort: Int
+        get() = port
+
     fun ensureStarted(context: Context): Int = synchronized(lock) {
         if (port != 0) return port
 

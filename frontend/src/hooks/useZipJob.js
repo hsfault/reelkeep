@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { cancelZip, getZip, startZip } from "../lib/api";
+import { isAndroidApp, publishZip, trackJob } from "../lib/android";
 
 const POLL_MS = 600;
 const FALLBACK_VIDEO_BYTES = 6 * 1024 * 1024; // guess until the first video finishes
@@ -19,6 +20,8 @@ export default function useZipJob() {
   const [job, setJob] = useState(null);
   const [error, setError] = useState(null);
   const [starting, setStarting] = useState(false);
+  // Android only: { state: "saving" | "saved" | "failed", uri, location, error }
+  const [publish, setPublish] = useState(null);
 
   // Poll while the job runs
   useEffect(() => {
@@ -35,11 +38,27 @@ export default function useZipJob() {
     return () => clearTimeout(id);
   }, [job]);
 
+  // Android: move the finished ZIP into Downloads/Reelkeep
+  useEffect(() => {
+    if (!isAndroidApp || job?.status !== "done" || publish) return;
+    setPublish({ state: "saving" });
+    publishZip(job).then((result) => {
+      if (result?.ok) {
+        setPublish({ state: "saved", uri: result.uri, location: result.location });
+      } else {
+        setPublish({ state: "failed", error: result?.error || "Couldn't save to Downloads." });
+      }
+    });
+  }, [job, publish]);
+
   const start = useCallback(async (username, items) => {
     setError(null);
+    setPublish(null);
     setStarting(true);
     try {
-      setJob(await startZip(username, items));
+      const created = await startZip(username, items);
+      setJob(created);
+      trackJob(created.id); // Android: background notification + keeps the app alive
     } catch (err) {
       setJob(null);
       setError(err);
@@ -60,6 +79,7 @@ export default function useZipJob() {
   const reset = useCallback(() => {
     setJob(null);
     setError(null);
+    setPublish(null);
   }, []);
 
   let status = "idle";
@@ -74,6 +94,7 @@ export default function useZipJob() {
     status,
     progress: computeProgress(job),
     errorMessage: error?.message || job?.error || "",
+    publish,
     start,
     cancel,
     reset,

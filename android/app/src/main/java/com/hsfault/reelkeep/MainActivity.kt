@@ -1,10 +1,13 @@
 package com.hsfault.reelkeep
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -19,6 +22,7 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import kotlin.concurrent.thread
 
 class MainActivity : ComponentActivity() {
@@ -27,11 +31,20 @@ class MainActivity : ComponentActivity() {
     private lateinit var message: TextView
     private var fileCallback: ValueCallback<Array<Uri>>? = null
 
-    // File picker for <input type="file"> (cookies.txt upload in Settings)
+    // File picker for <input type="file"> (cookies.txt upload under Advanced)
     private val pickFile = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         fileCallback?.onReceiveValue(uri?.let { arrayOf(it) })
         fileCallback = null
     }
+
+    // In-app Instagram login; tells the React app when it succeeded
+    private val loginFlow = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            webView.evaluateJavascript("window.dispatchEvent(new Event('reelkeep:login'))", null)
+        }
+    }
+
+    private val askPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,6 +69,7 @@ class MainActivity : ComponentActivity() {
 
         setupWebView()
         setupBackButton()
+        requestLegacyStorageIfNeeded()
         startEngine()
     }
 
@@ -63,11 +77,14 @@ class MainActivity : ComponentActivity() {
     private fun setupWebView() {
         with(webView.settings) {
             javaScriptEnabled = true
-            domStorageEnabled = true               // recent profiles (localStorage)
+            domStorageEnabled = true                 // recent profiles (localStorage)
             mediaPlaybackRequiresUserGesture = false // video preview autoplay
             allowFileAccess = false
             userAgentString = "$userAgentString ReelkeepApp"
         }
+
+        // window.ReelkeepAndroid in the React app
+        webView.addJavascriptInterface(ReelkeepBridge(this, webView), "ReelkeepAndroid")
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -111,6 +128,15 @@ class MainActivity : ComponentActivity() {
         })
     }
 
+    private fun requestLegacyStorageIfNeeded() {
+        if (Build.VERSION.SDK_INT < 29 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            askPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+    }
+
     private fun startEngine() {
         thread(name = "reelkeep-start") {
             val result = runCatching {
@@ -125,6 +151,24 @@ class MainActivity : ComponentActivity() {
                     .onFailure { e -> message.text = "COULDN'T START REELKEEP\n\n${e.message ?: e}" }
             }
         }
+    }
+
+    // ---- Called by ReelkeepBridge (always on the UI thread) ----
+
+    fun openLogin() {
+        loginFlow.launch(Intent(this, LoginActivity::class.java))
+    }
+
+    fun startDownloadTracking(jobId: String) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            askPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val intent = Intent(this, DownloadService::class.java)
+            .putExtra(DownloadService.EXTRA_JOB_ID, jobId)
+        runCatching { ContextCompat.startForegroundService(this, intent) }
     }
 
     override fun onDestroy() {
