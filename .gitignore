@@ -1,0 +1,13 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Private data (cookies, temp files): never commit
+backend/data/
+
+# Node
+node_modules/
+
+# Logs
+*.log
