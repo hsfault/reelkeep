@@ -9,6 +9,7 @@ per-video /media/info/ lookups that made the plain CLI take ~12 s per video.
 
 import itertools
 import logging
+import os
 import re
 import threading
 import time
@@ -24,9 +25,10 @@ log = logging.getLogger("reelkeep.ig")
 logging.getLogger("instagram").setLevel(logging.DEBUG)
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
+# The Android app passes its private storage folder; on PC it's backend/data
+DATA_DIR = Path(os.environ.get("REELKEEP_DATA_DIR") or (BASE_DIR / "data"))
 COOKIES_FILE = DATA_DIR / "cookies.txt"
-DATA_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 BATCH_SIZE = 50                       # videos per "Load more"
 SLEEP_BETWEEN_REQUESTS = [2.0, 4.0]   # gallery-dl default is 6-12 s

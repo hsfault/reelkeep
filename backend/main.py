@@ -5,6 +5,7 @@ Serves the built React app plus the API: health, fetch, thumbnails, ZIP jobs, co
 
 import logging
 import mimetypes
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse
@@ -41,7 +42,11 @@ USER_AGENT = (
 )
 DEV_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+# The Android app passes the bundled web folder; on PC it's frontend/dist
+FRONTEND_DIST = Path(
+    os.environ.get("REELKEEP_WEB_DIR")
+    or (Path(__file__).resolve().parent.parent / "frontend" / "dist")
+)
 INDEX_FILE = FRONTEND_DIST / "index.html"
 NO_CACHE = {"Cache-Control": "no-cache"}
 IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}

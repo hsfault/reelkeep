@@ -8,6 +8,18 @@ backend/data/
 
 # Node
 node_modules/
+dist/
+
+# Android build output
+android/.gradle/
+android/build/
+android/app/build/
+android/app/web-src/
+android/local.properties
+
+# Signing keys: never commit
+*.jks
+*.keystore
 
 # Logs
 *.log

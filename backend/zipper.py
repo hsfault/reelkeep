@@ -1,12 +1,15 @@
 """
 Reelkeep - ZIP jobs.
 
-Downloads the selected videos one by one into a ZIP in the Downloads folder
-(PC: ~/Downloads/Reelkeep, Termux: phone Downloads/Reelkeep) and reports
-progress that the frontend polls.
+Downloads the selected videos one by one into a ZIP and reports progress
+that the frontend polls. Output folder:
+  - Android app: the folder the app passes in REELKEEP_DOWNLOADS_DIR
+  - Termux:      phone Downloads/Reelkeep
+  - PC:          ~/Downloads/Reelkeep
 """
 
 import logging
+import os
 import re
 import threading
 import time
@@ -21,7 +24,8 @@ import requests
 log = logging.getLogger("reelkeep.zip")
 
 BASE_DIR = Path(__file__).resolve().parent
-TMP_DIR = BASE_DIR / "data" / "tmp"
+DATA_DIR = Path(os.environ.get("REELKEEP_DATA_DIR") or (BASE_DIR / "data"))
+TMP_DIR = DATA_DIR / "tmp"
 TMP_DIR.mkdir(parents=True, exist_ok=True)
 
 VIDEO_HOSTS = ("cdninstagram.com", "fbcdn.net")
@@ -54,8 +58,12 @@ class _Cancelled(Exception):
 
 
 def downloads_dir():
-    termux = Path.home() / "storage" / "downloads"
-    base = termux if termux.exists() else Path.home() / "Downloads"
+    override = os.environ.get("REELKEEP_DOWNLOADS_DIR")
+    if override:
+        base = Path(override)
+    else:
+        termux = Path.home() / "storage" / "downloads"
+        base = termux if termux.exists() else Path.home() / "Downloads"
     out = base / "Reelkeep"
     out.mkdir(parents=True, exist_ok=True)
     return out

@@ -23,8 +23,11 @@ createRoot(document.getElementById("root")).render(
   </StrictMode>
 );
 
-// Installable app: offline shell (production build only)
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
+// The Android app adds "ReelkeepApp" to its browser identity
+const insideAndroidApp = navigator.userAgent.includes("ReelkeepApp");
+
+// Offline shell for the browser version only (production build)
+if (import.meta.env.PROD && !insideAndroidApp && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   });
